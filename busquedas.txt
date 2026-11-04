@@ -20,4 +20,695 @@ COMANDOS
 
 ########## FILE: scripts/pipeline/step2_search.py ##########
 
-PLACEHOLDER_TRUNCATED
+#!/usr/bin/env python3
+"""Step 2: search flights via Playwright (no price/stop filter)."""
+from __future__ import annotations
+
+from scrape_flight_link import ScrapedOffer
+from scrape_google_roundtrip import scrape_google_on_page, scrape_google_url
+from scrape_kayak_roundtrip import scrape_kayak_on_page, scrape_kayak_url
+
+from flight_policy import offer_complete
+from pipeline.step_a_urls import kayak_to_google
+
+
+def search_offer(link: str, page=None, *, check_budget: bool = False) -> ScrapedOffer:
+    """Scrape cheapest offer from Link; budget check off for step 2 (filter in step 3)."""
+    del check_budget  # scrapers may still optimize; step 3 is source of truth
+    if "google.com/travel/flights" in link:
+        if page is not None:
+            return scrape_google_on_page(page, link)
+        return scrape_google_url(link)
+    if "kayak" in link:
+        alt = kayak_to_google(link)
+        offer: ScrapedOffer | None = None
+        try:
+            offer = scrape_kayak_on_page(page, link) if page else scrape_kayak_url(link)
+        except RuntimeError:
+            offer = None
+        if offer and offer_complete(offer):
+            return offer
+        if alt:
+            if page is not None:
+                return scrape_google_on_page(page, alt)
+            return scrape_google_url(alt)
+        if offer:
+            return offer
+        raise RuntimeError("Kayak scrape failed and no Google fallback")
+    raise ValueError(f"Unsupported link: {link}")
+
+########## FILE: scripts/pipeline/step_a_urls.py ##########
+
+#!/usr/bin/env python3
+"""Step A: resolve search URLs (Kayak → Google fallback URL)."""
+from __future__ import annotations
+
+import re
+from urllib.parse import quote
+
+
+def kayak_to_google(url: str) -> str | None:
+    m = re.search(
+        r"kayak\.com\.ar/flights/([A-Z]{3})-([A-Z]{3})/(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})",
+        url,
+    )
+    if not m:
+        return None
+    orig, dest, ida, vuelta = m.groups()
+    city = {"PVG": "Shanghai", "PEK": "Beijing", "BJS": "Beijing"}.get(dest, dest)
+    q = f"Flights to {city} from {orig} on {ida} through {vuelta}"
+    return (
+        "https://www.google.com/travel/flights/search?q="
+        + quote(q)
+        + "&curr=USD&hl=es"
+    )
+
+
+def search_urls_for_link(link: str) -> list[str]:
+    """Ordered URLs to try for one sheet Link cell."""
+    if "google.com/travel/flights" in link:
+        return [link]
+    if "kayak" in link:
+        alt = kayak_to_google(link)
+        return [link] + ([alt] if alt else [])
+    raise ValueError(f"Unsupported link: {link}")
+
+########## FILE: scripts/playwright_common.py ##########
+
+#!/usr/bin/env python3
+"""Shared Playwright settings: faster loads, one browser per batch."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Iterator
+
+from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+
+# Keep stylesheets — Google Flights does not render offer cards without CSS.
+BLOCK_RESOURCE_TYPES = frozenset({"image", "media", "font"})
+
+
+def _route_handler(route) -> None:
+    if route.request.resource_type in BLOCK_RESOURCE_TYPES:
+        route.abort()
+    else:
+        route.continue_()
+
+
+@contextmanager
+def flight_browser(headless: bool = True) -> Iterator[tuple[Playwright, Browser]]:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=headless,
+            channel="chrome",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        try:
+            yield p, browser
+        finally:
+            browser.close()
+
+
+def new_flight_page(browser: Browser, *, locale: str = "es-AR") -> Page:
+    page = browser.new_page(locale=locale)
+    page.route("**/*", _route_handler)
+    return page
+
+########## FILE: scripts/route_links.py ##########
+
+#!/usr/bin/env python3
+"""Build search URLs from Origen, Destino, and trip dates."""
+from __future__ import annotations
+
+from datetime import date
+from urllib.parse import quote
+
+from trip_days import parse_fecha_column
+
+# (Origen exacto en planilla, Destino, plantilla con {ida} {vuelta} ISO)
+ROUTE_TEMPLATES: dict[tuple[str, str], str] = {
+    (
+        "Buenos Aires",
+        "Shanghái",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Buenos%20Aires%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Buenos Aires",
+        "Pekín",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20EZE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Buenos Aires",
+        "Tokio",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20BUE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Mendoza (incluye vuelo Mendoza–Buenos Aires)",
+        "Shanghái",
+    ): "https://www.kayak.com.ar/flights/MDZ-PVG/{ida}/{vuelta}?sort=price_a",
+    (
+        "Mendoza (incluye vuelo Mendoza–Buenos Aires)",
+        "Pekín",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20MDZ%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Chile",
+        "Tokio",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20SCL%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Chile",
+        "Pekín",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    (
+        "Chile",
+        "Shanghái",
+    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+}
+
+
+class UnknownRouteError(ValueError):
+    def __init__(self, origen: str, destino: str) -> None:
+        super().__init__(f"Sin plantilla de link para {origen!r} → {destino!r}")
+        self.origen = origen
+        self.destino = destino
+
+
+def link_for_dates(origen: str, destino: str, ida: date, vuelta: date) -> str:
+    key = (origen.strip(), destino.strip())
+    tmpl = ROUTE_TEMPLATES.get(key)
+    if not tmpl:
+        raise UnknownRouteError(origen, destino)
+    return tmpl.format(ida=ida.isoformat(), vuelta=vuelta.isoformat())
+
+
+def link_from_fecha_cell(origen: str, destino: str, fecha_cell: str, year: int = 2027) -> str:
+    ida, vuelta = parse_fecha_column(fecha_cell.strip(), year)
+    return link_for_dates(origen, destino, ida, vuelta)
+
+########## FILE: scripts/scrape_flight_link.py ##########
+
+#!/usr/bin/env python3
+"""Scrape cheapest round-trip offer from a Google Flights or Kayak URL (headless Chrome)."""
+from __future__ import annotations
+
+import argparse
+import html
+import re
+import subprocess
+import sys
+import unicodedata
+from dataclasses import dataclass
+
+
+@dataclass
+class ScrapedOffer:
+    precio: int
+    ida: str
+    vuelta: str
+    esc_ida: int
+    esc_vuelta: int
+    total_horas: str
+    notas: str = ""
+
+
+def _norm(s: str) -> str:
+    s = html.unescape(s).replace("\xa0", " ")
+    s = unicodedata.normalize("NFKD", s)
+    return s
+
+
+def _short_city(name: str) -> str:
+    """Turn long airport phrase into sheet-style city label."""
+    name = name.strip()
+    low = name.lower()
+    if " de " in low:
+        name = name.split(" de ")[-1].strip()
+    name = re.sub(r"\s*ADD\b", "", name).strip()
+    replacements = {
+        "São Paulo-Guarulhos": "São Paulo",
+        "São Paulo": "São Paulo",
+        "Adís Abeba": "Adís Abeba",
+        "Istanbul Airport": "Estambul",
+        "Aeropuerto Internacional de Pekín": "Pekín",
+        "Buenos Aires": "Buenos Aires",
+        "Ezeiza": "Ezeiza",
+    }
+    for k, v in replacements.items():
+        if k.lower() in low:
+            return v
+    if len(name) > 40:
+        name = name.split(",")[0]
+    return name
+
+
+def _fmt_leg(duration: str, airline: str, layovers: list[str]) -> str:
+    cities = " + ".join(_short_city(x) for x in layovers if x)
+    if cities:
+        return f"{duration} {airline} ({cities})"
+    return f"{duration} {airline}"
+
+
+def _parse_google(html_text: str) -> ScrapedOffer | None:
+    text = _norm(html_text)
+    offers: list[dict] = []
+    for lab in re.findall(r'aria-label="([^"]{80,1500})"', text):
+        if "precio total de ida y vuelta" not in lab or "dólares" not in lab:
+            continue
+        lab = html.unescape(lab)
+        pm = re.search(r"A partir de ([\d\.]+)\s*dólares estadounidenses", lab)
+        if not pm:
+            continue
+        price = int(pm.group(1).replace(".", ""))
+        dm = re.search(r"Duración total: ([0-9]+)\s*h\s*([0-9]+)\s*min", lab)
+        dur = f"{dm.group(1)}h{dm.group(2).zfill(2)}" if dm else "sin dato"
+        sm = re.search(r"Vuelo con (\d+) escala", lab)
+        stops = int(sm.group(1)) if sm else 0
+        am = re.search(r"escalas de ([^.]+)\.", lab)
+        airline = am.group(1).strip() if am else "sin dato"
+        lay = re.findall(
+            r"escala \(\d+ de \d+\) es una escala de [^.]+ en ([^.]+?) de ", lab
+        )
+        offers.append(
+            dict(price=price, dur=dur, stops=stops, airline=airline, lay=lay, raw=lab)
+        )
+    if not offers:
+        return None
+    best = min(offers, key=lambda x: x["price"])
+    ida = _fmt_leg(best["dur"], best["airline"], best["lay"])
+    # Return leg: scrape return options if present
+    vuelta = "sin dato"
+    esc_vuelta = "sin dato"
+    ret_offers = []
+    for lab in re.findall(r'aria-label="([^"]{80,1500})"', text):
+        if "regreso" in lab.lower() and "dólares" in lab and "precio total" in lab:
+            lab = html.unescape(lab)
+            pm = re.search(r"A partir de ([\d\.]+)\s*dólares", lab)
+            dm = re.search(r"Duración total: ([0-9]+)\s*h\s*([0-9]+)\s*min", lab)
+            sm = re.search(r"Vuelo con (\d+) escala", lab)
+            am = re.search(r"escalas de ([^.]+)\.", lab)
+            if pm and dm:
+                lay = re.findall(r"escala[^.]* en ([^.]+?) de ", lab)
+                ret_offers.append(
+                    dict(
+                        price=int(pm.group(1).replace(".", "")),
+                        dur=f"{dm.group(1)}h{dm.group(2).zfill(2)}",
+                        stops=int(sm.group(1)) if sm else 0,
+                        airline=am.group(1).strip() if am else best["airline"],
+                        lay=lay,
+                    )
+                )
+    if ret_offers:
+        ret = min(ret_offers, key=lambda x: x["price"])
+        vuelta = _fmt_leg(ret["dur"], ret["airline"], ret["lay"])
+        esc_vuelta = ret["stops"]
+        total_price = ret["price"]
+    else:
+        total_price = best["price"]
+        vuelta = f"sin dato (solo ida visible; precio RT {total_price} USD en Google)"
+        esc_vuelta = "sin dato"
+
+    # Total hours: sum ida + vuelta if both parsed
+    total = "sin dato"
+    if vuelta and "h" in best["dur"] and "h" in str(vuelta):
+        def mins(s: str) -> int:
+            m = re.match(r"(\d+)h(\d+)", s)
+            return int(m.group(1)) * 60 + int(m.group(2)) if m else 0
+
+        if esc_vuelta != "sin dato":
+            tot_m = mins(best["dur"]) + mins(vuelta.split()[0])
+            total = f"{tot_m // 60}h{tot_m % 60:02d}"
+
+    return ScrapedOffer(
+        precio=total_price if ret_offers else best["price"],
+        ida=ida,
+        vuelta=vuelta if isinstance(vuelta, str) else "sin dato",
+        esc_ida=best["stops"],
+        esc_vuelta=esc_vuelta if isinstance(esc_vuelta, int) else 0,
+        total_horas=total,
+        notas="" if ret_offers else "vuelta: abrir link y elegir regreso en Google",
+    )
+
+
+def _parse_kayak(html_text: str) -> ScrapedOffer | None:
+    text = _norm(html_text)
+    # Kayak often embeds USD prices
+    prices = [int(x.replace(",", "")) for x in re.findall(r"US\$[\s]*([\d,]+)", text)]
+    if not prices:
+        prices = [int(x) for x in re.findall(r'"price"\s*:\s*(\d{3,5})', text)]
+    if not prices:
+        return None
+    price = min(prices)
+    return ScrapedOffer(
+        precio=price,
+        ida="sin dato",
+        vuelta="sin dato",
+        esc_ida=0,
+        esc_vuelta=0,
+        total_horas="sin dato",
+        notas="Kayak: precio mínimo en HTML; completar tramos manualmente o re-scrape",
+    )
+
+
+def fetch_html(url: str, budget_ms: int = 25000) -> str:
+    proc = subprocess.run(
+        [
+            "google-chrome",
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            f"--virtual-time-budget={budget_ms}",
+            "--dump-dom",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=budget_ms // 1000 + 60,
+    )
+    if proc.returncode != 0 and not proc.stdout:
+        raise RuntimeError(proc.stderr[:500] or "chrome failed")
+    return proc.stdout
+
+
+def scrape_url(url: str) -> ScrapedOffer:
+    html_text = fetch_html(url)
+    if "google.com/travel/flights" in url:
+        offer = _parse_google(html_text)
+    elif "kayak" in url:
+        offer = _parse_kayak(html_text)
+    else:
+        raise ValueError(f"Unsupported URL: {url}")
+    if not offer:
+        raise RuntimeError("No offers parsed from page")
+    return offer
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("url")
+    args = ap.parse_args()
+    offer = scrape_url(args.url)
+    print(
+        {
+            "precio": offer.precio,
+            "ida": offer.ida,
+            "vuelta": offer.vuelta,
+            "esc_ida": offer.esc_ida,
+            "esc_vuelta": offer.esc_vuelta,
+            "total_horas": offer.total_horas,
+            "notas": offer.notas,
+        }
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+########## FILE: scripts/scrape_google_roundtrip.py ##########
+
+#!/usr/bin/env python3
+"""Playwright: cheapest Google Flights round trip for a search URL."""
+from __future__ import annotations
+
+import argparse
+import html
+import re
+import time
+
+from playwright.sync_api import Page
+
+from playwright_common import flight_browser, new_flight_page
+from scrape_flight_link import ScrapedOffer, _fmt_leg
+
+GOOGLE_OFFER_SEL = 'li.pIav2d div.JMc5Xc[aria-label*="precio total de ida y vuelta"]'
+
+
+def _parse_label(lab: str) -> dict | None:
+    lab = html.unescape(lab.replace("\xa0", " ")).replace("\u00a0", " ")
+    pm = re.search(r"A partir de ([\d\.]+)\s*dólares", lab)
+    if not pm or "precio total de ida y vuelta" not in lab:
+        return None
+    dm = re.search(
+        r"Duración total: ([0-9]+)\s*h(?:\s*([0-9]+)\s*min)?",
+        lab.replace("\xa0", " "),
+    )
+    if not dm:
+        return None
+    sm = re.search(r"Vuelo con (\d+) escala", lab)
+    stops = 0
+    if sm:
+        stops = int(sm.group(1))
+    elif "vuelo directo" not in lab.lower():
+        return None
+    am = re.search(r"escalas de ([^.]+)\.", lab)
+    lay = re.findall(
+        r"escala \(\d+ de \d+\) es una escala de [^.]+ en (.+?)\.\s*(?:Esta escala|$)",
+        lab,
+    )
+    return {
+        "price": int(pm.group(1).replace(".", "")),
+        "dur": f"{dm.group(1)}h{(dm.group(2) or '0').zfill(2)}",
+        "stops": stops,
+        "airline": am.group(1).strip() if am else "?",
+        "lay": lay,
+        "label": lab,
+    }
+
+
+def _labels(page: Page) -> list[str]:
+    return page.evaluate(
+        """() => Array.from(document.querySelectorAll('li.pIav2d div.JMc5Xc[aria-label]'))
+        .map(e => e.getAttribute('aria-label'))
+        .filter(x => x && x.includes('precio total de ida y vuelta'));"""
+    )
+
+
+def _departure_airport(lab: str) -> str:
+    m = re.search(r"Sale de ([^.]+)\.", html.unescape(lab))
+    return m.group(1).lower() if m else ""
+
+
+def _is_return_leg_label(lab: str) -> bool:
+    dep = _departure_airport(lab)
+    if not dep:
+        return False
+    china = (
+        "pudong",
+        "shanghai",
+        "shangh",
+        "pekin",
+        "pekín",
+        "beijing",
+        "capital",
+        "daxing",
+        "hongqiao",
+    )
+    return any(k in dep for k in china)
+
+
+def _wait_for_offers(page: Page, timeout_ms: int = 45000) -> None:
+    try:
+        page.wait_for_selector(GOOGLE_OFFER_SEL, timeout=timeout_ms)
+    except Exception:
+        page.wait_for_timeout(min(8000, timeout_ms // 4))
+
+
+def _offer_from_page_state(page: Page, raw_labels: list[str]) -> ScrapedOffer:
+    outbound: list[dict] = []
+    for i, lab in enumerate(raw_labels):
+        parsed = _parse_label(lab)
+        if parsed:
+            parsed["card_index"] = i
+            outbound.append(parsed)
+    if not outbound:
+        raise RuntimeError("No se encontraron vuelos de ida en Google Flights")
+    best = min(outbound, key=lambda x: x["price"])
+    offer_cards = page.locator("li.pIav2d").filter(
+        has=page.locator('div.JMc5Xc[aria-label*="precio total de ida y vuelta"]')
+    )
+    offer_cards.nth(best["card_index"]).click(force=True, timeout=15000)
+    ret_labels: list[str] = []
+    for _ in range(8):
+        try:
+            page.wait_for_function(
+                """() => {
+                  const labs = Array.from(document.querySelectorAll('li.pIav2d div.JMc5Xc[aria-label]'))
+                    .map(e => e.getAttribute('aria-label') || '');
+                  return labs.some(l => /pekin|pekín|beijing|shanghai|pudong|capital|hongqiao|daxing/i.test(l));
+                }""",
+                timeout=6000,
+            )
+        except Exception:
+            pass
+        ret_labels = _labels(page)
+        if any(_is_return_leg_label(l) for l in ret_labels):
+            break
+        if len(ret_labels) < max(1, len(raw_labels) // 3):
+            break
+        page.wait_for_timeout(1500)
+
+    ret: list[dict] = []
+    for lab in ret_labels:
+        if not _is_return_leg_label(lab):
+            continue
+        parsed = _parse_label(lab)
+        if parsed:
+            ret.append(parsed)
+
+    ob = best
+    ida = _fmt_leg(ob["dur"], ob["airline"], ob["lay"])
+    precio = ob["price"]
+    vuelta = "sin dato"
+    esc_vuelta = 0
+    total = "sin dato"
+    if ret:
+        rb = min(ret, key=lambda x: x["price"])
+        precio = rb["price"]
+        vuelta = _fmt_leg(rb["dur"], rb["airline"], rb["lay"])
+        esc_vuelta = rb["stops"]
+        m1 = re.match(r"(\d+)h(\d+)", ob["dur"])
+        m2 = re.match(r"(\d+)h(\d+)", rb["dur"])
+        if m1 and m2:
+            mins = int(m1.group(1)) * 60 + int(m1.group(2))
+            mins += int(m2.group(1)) * 60 + int(m2.group(2))
+            total = f"{mins // 60}h{mins % 60:02d}"
+    return ScrapedOffer(
+        precio=precio,
+        ida=ida,
+        vuelta=vuelta,
+        esc_ida=ob["stops"],
+        esc_vuelta=esc_vuelta,
+        total_horas=total,
+    )
+
+
+def scrape_google_on_page(page: Page, url: str) -> ScrapedOffer:
+    page.goto(url, timeout=90000, wait_until="domcontentloaded")
+    _wait_for_offers(page)
+    raw_labels = _labels(page)
+    if not raw_labels:
+        page.wait_for_timeout(4000)
+        raw_labels = _labels(page)
+    return _offer_from_page_state(page, raw_labels)
+
+
+def scrape_google_url(url: str, wait_ms: int = 22000) -> ScrapedOffer:
+    del wait_ms  # legacy arg; selector-based wait used instead
+    last_err: Exception | None = None
+    last_incomplete: ScrapedOffer | None = None
+    for attempt in range(3):
+        try:
+            with flight_browser() as (_p, browser):
+                page = new_flight_page(browser)
+                offer = scrape_google_on_page(page, url)
+            if not offer.vuelta.startswith("sin dato"):
+                return offer
+            last_incomplete = offer
+            time.sleep(5)
+        except RuntimeError as e:
+            last_err = e
+            time.sleep(5)
+    if last_incomplete:
+        return last_incomplete
+    raise last_err or RuntimeError("Google scrape failed")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("url")
+    args = ap.parse_args()
+    print(scrape_google_url(args.url))
+
+
+if __name__ == "__main__":
+    main()
+
+########## FILE: scripts/scrape_kayak_roundtrip.py ##########
+
+#!/usr/bin/env python3
+"""Playwright: cheapest Kayak round trip (MDZ-PVG etc.)."""
+from __future__ import annotations
+
+import argparse
+import re
+
+from playwright.sync_api import Page
+
+from playwright_common import flight_browser, new_flight_page
+from scrape_flight_link import ScrapedOffer, _fmt_leg
+
+KAYAK_PRICE_HINT = re.compile(r"US\$[\s]*([\d,]+)")
+
+
+def _dismiss_cookies(page: Page) -> None:
+    for sel in (
+        'button:has-text("Aceptar")',
+        'button:has-text("Accept")',
+        'button:has-text("Entendido")',
+        'button:has-text("Acepto")',
+    ):
+        try:
+            page.locator(sel).first.click(timeout=1500)
+            return
+        except Exception:
+            pass
+
+
+def _parse_kayak_body(html: str, text: str) -> ScrapedOffer:
+    prices = [int(x.replace(",", "")) for x in KAYAK_PRICE_HINT.findall(html + text)]
+    if not prices:
+        prices = [int(x.replace(",", "")) for x in re.findall(r"\$\s*([\d,]+)", text)]
+    prices = [p for p in prices if 400 <= p <= 15000]
+    if not prices:
+        raise RuntimeError("Kayak: no se encontró precio en la página")
+    precio = min(prices)
+    durs = re.findall(r"(\d+)\s*h\s*(\d+)\s*m", text, re.I)
+    ida = vuelta = "sin dato"
+    esc_ida = esc_vuelta = 0
+    if len(durs) >= 2:
+        ida = f"{durs[0][0]}h{durs[0][1].zfill(2)} (ver Kayak)"
+        vuelta = f"{durs[1][0]}h{durs[1][1].zfill(2)} (ver Kayak)"
+        mins = int(durs[0][0]) * 60 + int(durs[0][1]) + int(durs[1][0]) * 60 + int(durs[1][1])
+        total = f"{mins // 60}h{mins % 60:02d}"
+    else:
+        total = "sin dato"
+    return ScrapedOffer(
+        precio=precio,
+        ida=ida,
+        vuelta=vuelta,
+        esc_ida=esc_ida,
+        esc_vuelta=esc_vuelta,
+        total_horas=total,
+        notas="Kayak: revisar escalas en link si faltan paréntesis",
+    )
+
+
+def scrape_kayak_on_page(page: Page, url: str) -> ScrapedOffer:
+    page.goto(url, timeout=90000, wait_until="domcontentloaded")
+    _dismiss_cookies(page)
+    try:
+        page.wait_for_function(
+            """() => /US\\$\\s*[\\d,]+/.test(document.body.innerText)""",
+            timeout=35000,
+        )
+    except Exception:
+        page.wait_for_timeout(5000)
+    html = page.content()
+    text = page.inner_text("body")
+    return _parse_kayak_body(html, text)
+
+
+def scrape_kayak_url(url: str, wait_ms: int = 25000) -> ScrapedOffer:
+    del wait_ms
+    with flight_browser() as (_p, browser):
+        page = new_flight_page(browser)
+        return scrape_kayak_on_page(page, url)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("url")
+    args = ap.parse_args()
+    print(scrape_kayak_url(args.url))
+
+
+if __name__ == "__main__":
+    main()
