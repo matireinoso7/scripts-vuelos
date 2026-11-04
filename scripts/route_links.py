@@ -3,44 +3,18 @@
 from __future__ import annotations
 
 from datetime import date
-from urllib.parse import quote
 
 from trip_days import parse_fecha_column
 
-# (Origen exacto en planilla, Destino, plantilla con {ida} {vuelta} ISO)
 ROUTE_TEMPLATES: dict[tuple[str, str], str] = {
-    (
-        "Buenos Aires",
-        "Shanghái",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Buenos%20Aires%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Buenos Aires",
-        "Pekín",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20EZE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Buenos Aires",
-        "Tokio",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20BUE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Mendoza (incluye vuelo Mendoza–Buenos Aires)",
-        "Shanghái",
-    ): "https://www.kayak.com.ar/flights/MDZ-PVG/{ida}/{vuelta}?sort=price_a",
-    (
-        "Mendoza (incluye vuelo Mendoza–Buenos Aires)",
-        "Pekín",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20MDZ%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Chile",
-        "Tokio",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20SCL%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Chile",
-        "Pekín",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
-    (
-        "Chile",
-        "Shanghái",
-    ): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Buenos Aires", "Shanghái"): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Buenos%20Aires%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Buenos Aires", "Pekín"): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20EZE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Buenos Aires", "Tokio"): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20BUE%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Mendoza (incluye vuelo Mendoza–Buenos Aires)", "Shanghái"): "https://www.kayak.com.ar/flights/MDZ-PVG/{ida}/{vuelta}?sort=price_a",
+    ("Mendoza (incluye vuelo Mendoza–Buenos Aires)", "Pekín"): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20MDZ%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Chile", "Tokio"): "https://www.google.com/travel/flights/search?q=Flights%20to%20TYO%20from%20SCL%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Chile", "Pekín"): "https://www.google.com/travel/flights/search?q=Flights%20to%20Beijing%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
+    ("Chile", "Shanghái"): "https://www.google.com/travel/flights/search?q=Flights%20to%20Shanghai%20from%20Santiago%20de%20Chile%20on%20{ida}%20through%20{vuelta}&curr=USD&hl=es",
 }
 
 
