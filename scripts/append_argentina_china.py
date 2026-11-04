@@ -53,6 +53,7 @@ def load_existing_keys(sheet_csv: str) -> set[tuple[str, str, date, date]]:
         if start is None and fecha and "sin dato" not in fecha.lower():
             try:
                 from trip_days import parse_fecha_column
+
                 start, end = parse_fecha_column(fecha)
             except ValueError:
                 pass
@@ -69,7 +70,22 @@ def build_new_rows(sheet_csv: str) -> list[list]:
             if (origen, destino, start, end) in existing:
                 continue
             link = link_for_dates(origen, destino, start, end)
-            rows.append(["sin dato", origen, destino, fecha_cell(start, end), "sin dato", "sin dato", "sin dato", "sin dato", "sin dato", length, link, ""])
+            rows.append(
+                [
+                    "sin dato",
+                    origen,
+                    destino,
+                    fecha_cell(start, end),
+                    "sin dato",
+                    "sin dato",
+                    "sin dato",
+                    "sin dato",
+                    "sin dato",
+                    length,
+                    link,
+                    "",
+                ]
+            )
             existing.add((origen, destino, start, end))
     return rows
 
@@ -78,7 +94,15 @@ def main() -> None:
     sheet = sys.stdin.read()
     rows = build_new_rows(sheet)
     sys.stderr.write(f"new_rows={len(rows)}\n")
-    json.dump({"spreadsheetId": SID, "sheet": "Hoja 1", "values": rows}, sys.stdout, ensure_ascii=False)
+    json.dump(
+        {
+            "spreadsheetId": SID,
+            "sheet": "Hoja 1",
+            "values": rows,
+        },
+        sys.stdout,
+        ensure_ascii=False,
+    )
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ def main() -> None:
         line = line.strip()
         if not line:
             continue
-        json.loads(line)
+        json.loads(line)  # validate
         print(line)
         n += 1
     print(f"# {n} payloads", file=sys.stderr)
