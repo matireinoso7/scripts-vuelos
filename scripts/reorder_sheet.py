@@ -41,6 +41,7 @@ def reorder_csv(content: str) -> list[list[str]]:
     if not rows:
         return []
     header = rows[0]
+    # Old: Origen,Destino,Fechas,Precio,Ida,Vuelta,Total,Link,Días viaje
     idx = {name: i for i, name in enumerate(header)}
     out: list[list[str]] = [
         [
