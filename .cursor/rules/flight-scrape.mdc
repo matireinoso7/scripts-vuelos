@@ -1,0 +1,15 @@
+---
+description: Flight scrape pipeline — on-demand only
+globs:
+  - scripts/run_flights.py
+  - scripts/pipeline/**
+  - sheet_live.csv
+---
+
+Do not start `pipeline_lotes.py`, tmux scrape sessions, or background MCP apply unless the user explicitly asks (e.g. P-refresh, P-all, P2).
+
+Default: user runs `run_flights.cmd --refresh-sheet` or asks for step P1–P5.
+
+Full sheet refresh: `--refresh-sheet` (all CSV rows, fresh links via route_links.py, writes A:L including Actualizado; includes step 5 purge).
+
+Partial ranges and `pipeline_lotes.py`: always use `--no-purge` on `--all` (step 5 scans the whole CSV, not the batch). Run `--step 5` only when the user wants a global purge.

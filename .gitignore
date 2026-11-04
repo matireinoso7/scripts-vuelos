@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+agent-tools/
+mcp_*.json
+wchunk_*.json
+wbatch_*.json
+rem_batch_*.json
+write_*.json
+sheet_payload.json
+*.log
