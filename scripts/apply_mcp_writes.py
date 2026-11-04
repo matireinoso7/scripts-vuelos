@@ -9,7 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from flight_policy import MAX_PRICE_USD
+
+from flight_policy import MAX_PRICE_USD  # noqa: E402
 
 
 def iter_payloads(path: Path, from_line: int = 0):
@@ -32,9 +33,9 @@ def count_payload_lines(path: Path) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Export MCP write_range payloads from JSONL")
     ap.add_argument("--path", type=Path, default=Path("/tmp/flight_writes.jsonl"))
-    ap.add_argument("--from-line", type=int, default=0)
-    ap.add_argument("--dump", action="store_true")
-    ap.add_argument("--count", action="store_true")
+    ap.add_argument("--from-line", type=int, default=0, help="0-based line index to start")
+    ap.add_argument("--dump", action="store_true", help="Print JSON array of payloads to stdout")
+    ap.add_argument("--count", action="store_true", help="Print number of data lines in file")
     args = ap.parse_args()
     if not args.path.exists():
         print(0 if args.count else "[]")
