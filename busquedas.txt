@@ -1,1 +1,23 @@
-PLACEHOLDER
+SCRIPTS DE BÚSQUEDA — Vuelos (Google Flights / Kayak)
+Generado: 04-Nov-2026 01:00 -03
+============================================================
+
+ÍNDICE
+  scripts/pipeline/step2_search.py
+  scripts/scrape_google_roundtrip.py
+  scripts/scrape_kayak_roundtrip.py
+  scripts/scrape_flight_link.py
+  scripts/playwright_common.py
+  scripts/route_links.py
+  scripts/pipeline/step_a_urls.py
+
+COMANDOS
+  PYTHONPATH=scripts python3 scripts/scrape_google_roundtrip.py "<url>"
+  PYTHONPATH=scripts python3 scripts/scrape_kayak_roundtrip.py "<url>"
+  python3 scripts/run_flights.py --step 2 --start-row N --end-row M
+
+============================================================
+
+########## FILE: scripts/pipeline/step2_search.py ##########
+
+PLACEHOLDER_TRUNCATED
