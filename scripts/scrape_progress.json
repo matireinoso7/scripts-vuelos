@@ -11,9 +11,7 @@
     226
   ],
   "pending_rows": [],
-  "rejected_rows": {
-    "2": "search_failed"
-  },
+  "rejected_rows": {},
   "failed_rows": [],
   "mcp_applied_lines": 3,
   "mcp_pending_batches": [],
