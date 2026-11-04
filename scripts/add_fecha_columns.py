@@ -100,6 +100,7 @@ def build_rows(current_csv: str, fechas_map: dict[str, str]) -> list[list]:
         ida_txt = row[idx["Ida"]]
         vuelta_txt = row[idx["Vuelta"]]
         if "Cantidad de escalas" in idx and "Escala IDA" not in idx:
+            # legacy sheet: recompute per leg from itinerary text
             esc_ida = escalas_celda(ida_txt)
             esc_vuelta = escalas_celda(vuelta_txt)
         elif "Escala IDA" in idx:
