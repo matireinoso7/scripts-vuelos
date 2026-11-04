@@ -82,7 +82,7 @@ Las filas de la planilla (origen, destino, fechas, link) se cargan **manualmente
 |------|--------|----------|
 | **1** | `step1_read.py` + [`route_links.py`](scripts/route_links.py) | Lee CSV; **regenera Link** desde origen, destino y **Fecha** |
 | **2** | `step2_search.py` | Scrape Playwright con URL nueva |
-| **3** | `step3_filter.py` + `flight_policy.py` | Precio **≤ 2.300 USD**, **&lt; 3 escalas** por pierna, ida/vuelta completos |
+| **3** | `step3_filter.py` + `flight_policy.py` | Precio **≤ 2.300 USD**, **< 3 escalas** por pierna, ida/vuelta completos |
 | **4** | `step4_save.py` | Actualiza variables: **Precio, escalas, Total Horas, Ida, Vuelta, Link, días, Actualizado** → JSONL `A:L` |
 | **5** | `step5_purge_invalid.py` | Quita filas del CSV que sigan violando precio/escalas (+ manifiesto MCP) |
 
