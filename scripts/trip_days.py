@@ -21,7 +21,6 @@ MONTHS = {
     "dic": 12,
 }
 
-
 def _month_num(token: str) -> int:
     key = token.lower().replace("á", "a")[:3]
     if key not in MONTHS:
