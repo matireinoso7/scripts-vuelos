@@ -93,10 +93,12 @@ def format_date_es(d: date) -> str:
 
 
 def format_date_dd_mm(d: date) -> str:
+    """Legacy numeric month; prefer format_date_dd_mon for the sheet."""
     return f"{d.day:02d}-{d.month:02d}"
 
 
 def format_date_dd_mon(d: date) -> str:
+    """Sheet token: DD-MON with 3-letter Spanish month (uppercase), e.g. 20-MAY."""
     return f"{d.day:02d}-{MONTHS_ES[d.month].upper()}"
 
 
@@ -112,6 +114,7 @@ def _parse_fecha_token(part: str, year: int) -> date:
 
 
 def parse_fecha_column(text: str, year: int = 2027) -> tuple[date, date]:
+    """Parse Fecha cell: DD-MM a DD-MM or DD-MON a DD-MON."""
     t = text.strip()
     if not t or "sin dato" in t.lower():
         raise ValueError(text)
@@ -137,6 +140,7 @@ def parse_date_es(text: str) -> date:
 
 
 def format_fecha_rango(ida: str, vuelta: str) -> str:
+    """Single sheet cell: DD-MON a DD-MON (year omitted; trips are same-year)."""
     if not ida or not vuelta:
         return "sin dato"
     if "sin dato" in ida.lower() or "sin dato" in vuelta.lower():
@@ -175,6 +179,7 @@ def score_window(start: date, end: date) -> tuple[int, int, int]:
 
 
 def candidate_windows(year: int = 2027, limit: int | None = 15) -> list[tuple[date, date, int, int, int]]:
+    """Ranked windows: ida from 01-MAR (no February), vuelta hasta 05-ABR, 25–30 días inclusivos."""
     from search_windows import all_trip_windows
 
     wins = all_trip_windows(year)
