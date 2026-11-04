@@ -1,15 +1,13 @@
 ---
-description: Flight scrape pipeline — on-demand only
-globs:
-  - scripts/run_flights.py
-  - scripts/pipeline/**
-  - sheet_live.csv
+description: Flight scrape pipeline conventions
+globs: scripts/**/*.py,busquedas.txt,sheet_*.csv
 ---
 
-Do not start `pipeline_lotes.py`, tmux scrape sessions, or background MCP apply unless the user explicitly asks (e.g. P-refresh, P-all, P2).
+# Flight scrape (Argentina → China)
 
-Default: user runs `run_flights.cmd --refresh-sheet` or asks for step P1–P5.
-
-Full sheet refresh: `--refresh-sheet` (all CSV rows, fresh links via route_links.py, writes A:L including Actualizado; includes step 5 purge).
-
-Partial ranges and `pipeline_lotes.py`: always use `--no-purge` on `--all` (step 5 scans the whole CSV, not the batch). Run `--step 5` only when the user wants a global purge.
+- **No background scrape** unless the user asks (P-refresh, P-all, lotes, etc.).
+- **Price cap:** do not write rows with round-trip price **> USD 2.300** (`scripts/price_policy.py`).
+- **Sheet columns:** Precio, Origen, Destino, Fecha, Escala IDA/VUELTA, Total Horas, Ida, Vuelta, Cantidad de dias de viaje, Link, Actualizado.
+- **MCP:** Google-sheets `write_range` for updates; reads via export CSV or MCP.
+- **Pipeline:** `run_flights.cmd` / `scripts/pipeline/*` — steps 1–5; lotes via `pipeline_lotes.py`.
+- **CSV mirrors:** `sheet_live.csv`, `sheet_export.csv` — keep in sync after sheet writes when user requests `--update-csv`.
