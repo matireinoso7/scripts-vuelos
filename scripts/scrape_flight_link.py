@@ -86,6 +86,7 @@ def _parse_google(html_text: str) -> ScrapedOffer | None:
         return None
     best = min(offers, key=lambda x: x["price"])
     ida = _fmt_leg(best["dur"], best["airline"], best["lay"])
+    # Return leg: scrape return options if present
     vuelta = "sin dato"
     esc_vuelta = "sin dato"
     ret_offers = []
@@ -117,6 +118,7 @@ def _parse_google(html_text: str) -> ScrapedOffer | None:
         vuelta = f"sin dato (solo ida visible; precio RT {total_price} USD en Google)"
         esc_vuelta = "sin dato"
 
+    # Total hours: sum ida + vuelta if both parsed
     total = "sin dato"
     if vuelta and "h" in best["dur"] and "h" in str(vuelta):
         def mins(s: str) -> int:
@@ -140,6 +142,7 @@ def _parse_google(html_text: str) -> ScrapedOffer | None:
 
 def _parse_kayak(html_text: str) -> ScrapedOffer | None:
     text = _norm(html_text)
+    # Kayak often embeds USD prices
     prices = [int(x.replace(",", "")) for x in re.findall(r"US\$[\s]*([\d,]+)", text)]
     if not prices:
         prices = [int(x) for x in re.findall(r'"price"\s*:\s*(\d{3,5})', text)]
