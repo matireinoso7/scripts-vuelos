@@ -5,7 +5,7 @@ from __future__ import annotations
 from scrape_flight_link import ScrapedOffer
 
 MAX_PRICE_USD = 2300
-MAX_STOPS_PER_LEG = 2  # reject if esc_ida or esc_vuelta >= 3
+MAX_STOPS_PER_LEG = 2
 
 
 def offer_complete(offer: ScrapedOffer) -> bool:
@@ -45,7 +45,6 @@ def _parse_int_cell(value: str) -> int | None:
 
 
 def sheet_row_reject_reason(row: dict[str, str]) -> str | None:
-    """Reason to remove an existing sheet/CSV row (price or stops only)."""
     precio = _parse_int_cell(row.get("Precio", ""))
     if precio is not None and precio > MAX_PRICE_USD:
         return "over_budget"

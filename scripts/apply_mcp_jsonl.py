@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from flight_policy import MAX_PRICE_USD  # noqa: E402
+from flight_policy import MAX_PRICE_USD
 
 
 def main() -> None:
@@ -26,10 +26,7 @@ def main() -> None:
             over += 1
             continue
         ok += 1
-    print(
-        f"{path}: {ok} write_range OK (≤{MAX_PRICE_USD} USD), "
-        f"{over} over budget (omit), {skip} status lines — apply OK via Google-sheets MCP."
-    )
+    print(f"{path}: {ok} write_range OK (≤{MAX_PRICE_USD} USD), {over} over budget (omit), {skip} status lines — apply OK via Google-sheets MCP.")
 
 
 if __name__ == "__main__":
