@@ -165,7 +165,7 @@ def scrape_google_on_page(page: Page, url: str) -> ScrapedOffer:
 
 
 def scrape_google_url(url: str, wait_ms: int = 22000) -> ScrapedOffer:
-    del wait_ms  # legacy arg; selector-based wait used instead
+    del wait_ms
     last_err: Exception | None = None
     last_incomplete: ScrapedOffer | None = None
     for attempt in range(3):
